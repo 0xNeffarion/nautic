@@ -1,0 +1,12 @@
+[package]
+name = "nautic_dns"
+version = "0.1.0"
+edition = "2021"
+description = ""
+authors = ["Vasco Serrano <main@neffware.com>"]
+publish = false
+
+[dependencies]
+tokio = { version = "^1.30", features = [ "full" ] }
+thiserror = { version = "^1.0" }
+anyhow = { version = "^1.0" }
