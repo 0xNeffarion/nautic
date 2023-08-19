@@ -8,5 +8,12 @@ publish = false
 
 [dependencies]
 tokio = { version = "^1.30", features = [ "full" ] }
-thiserror = { version = "^1.0" }
-anyhow = { version = "^1.0" }
+thiserror = { version = "^1" }
+url = { version = "^2" }
+serde = { version = "^1" }
+serde_derive = { version = "^1" }
+serde_with = { version = "^3" }
+bytes = { version = "^1", features = ["serde"] }
+derive_more = { version = "^0" }
+derive_builder = { version = "^0" }
+rand = { version = "^0.8" }

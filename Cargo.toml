@@ -35,3 +35,5 @@ opt-level = 3
 
 [dependencies]
 nautic_dns = { path = "./nautic_dns" }
+tokio = { version = "^1.30", features = [ "full" ] }
+bincode = { version = "^1.3" }
