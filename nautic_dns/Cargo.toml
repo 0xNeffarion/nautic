@@ -3,7 +3,10 @@ name = "nautic_dns"
 version = "0.1.0"
 edition = "2021"
 description = ""
+repository = "https://github.com/0xNeffarion/nautic"
 authors = ["Vasco Serrano <main@neffware.com>"]
+readme = "README.md"
+license = "MIT"
 publish = false
 
 [dependencies]
@@ -17,3 +20,4 @@ bytes = { version = "^1", features = ["serde"] }
 derive_more = { version = "^0" }
 derive_builder = { version = "^0" }
 rand = { version = "^0.8" }
+bitter = { version = "^0.6" }
