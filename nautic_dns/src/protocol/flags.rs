@@ -160,8 +160,8 @@ impl From<Flags> for Vec<u8> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MessageType {
-    Query = 0,
-    Response = 1,
+    Query = 0b0,
+    Response = 0b1,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -169,8 +169,8 @@ impl TryFrom<u8> for MessageType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Query),
-            1 => Ok(Self::Response),
+            0b0 => Ok(Self::Query),
+            0b1 => Ok(Self::Response),
             _ => Err(BitParseError::BadField("QR".to_owned(), value as u64)),
         }
     }
@@ -179,9 +179,9 @@ impl TryFrom<u8> for MessageType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OpCode {
-    StandardQuery = 0,
-    InverseQuery = 1,
-    ServerStatus = 2,
+    StandardQuery = 0b0000,
+    InverseQuery = 0b0001,
+    ServerStatus = 0b0010,
 }
 
 impl TryFrom<u8> for OpCode {
@@ -189,9 +189,9 @@ impl TryFrom<u8> for OpCode {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::StandardQuery),
-            1 => Ok(Self::InverseQuery),
-            2 => Ok(Self::ServerStatus),
+            0b0000 => Ok(Self::StandardQuery),
+            0b0001 => Ok(Self::InverseQuery),
+            0b0010 => Ok(Self::ServerStatus),
             _ => Err(BitParseError::BadField("OPCODE".to_owned(), value as u64)),
         }
     }
@@ -200,12 +200,12 @@ impl TryFrom<u8> for OpCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ResponseCode {
-    NoError = 0,
-    FormatError = 1,
-    ServerFailure = 2,
-    NoDomain = 3,
-    NotImplemented = 4,
-    Refused = 5,
+    NoError = 0b0000,
+    FormatError = 0b0001,
+    ServerFailure = 0b0010,
+    NoDomain = 0b0011,
+    NotImplemented = 0b1000,
+    Refused = 0b0101,
 }
 
 impl TryFrom<u8> for ResponseCode {
@@ -213,13 +213,176 @@ impl TryFrom<u8> for ResponseCode {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::NoError),
-            1 => Ok(Self::FormatError),
-            2 => Ok(Self::ServerFailure),
-            3 => Ok(Self::NoDomain),
-            4 => Ok(Self::NotImplemented),
-            5 => Ok(Self::Refused),
+            0b0000 => Ok(Self::NoError),
+            0b0001 => Ok(Self::FormatError),
+            0b0010 => Ok(Self::ServerFailure),
+            0b0011 => Ok(Self::NoDomain),
+            0b1000 => Ok(Self::NotImplemented),
+            0b0101 => Ok(Self::Refused),
             _ => Err(BitParseError::BadField("RCODE".to_owned(), value as u64)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn flags_simple_query_success() {
+        let bytes = vec![0b0000_0000, 0b0000_0000];
+        let flags = Flags::try_from(bytes).unwrap();
+        assert_eq!(flags.message_type(), &MessageType::Query);
+        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert!(!flags.authoritative_answer());
+        assert!(!flags.truncation());
+        assert!(!flags.recursion_desired());
+        assert!(!flags.recursion_available());
+        assert!(!flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
+    }
+
+    #[test]
+    fn flags_simple_response_success() {
+        let bytes = vec![0b1000_0000, 0b0000_0000];
+        let flags = Flags::try_from(bytes).unwrap();
+        assert_eq!(flags.message_type(), &MessageType::Response);
+        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert!(!flags.authoritative_answer());
+        assert!(!flags.truncation());
+        assert!(!flags.recursion_desired());
+        assert!(!flags.recursion_available());
+        assert!(!flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
+    }
+
+    #[test]
+    fn flags_authoritative_answer_success() {
+        let bytes = vec![0b0000_0100, 0b0000_0000];
+        let flags = Flags::try_from(bytes).unwrap();
+        assert_eq!(flags.message_type(), &MessageType::Query);
+        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert!(flags.authoritative_answer());
+        assert!(!flags.truncation());
+        assert!(!flags.recursion_desired());
+        assert!(!flags.recursion_available());
+        assert!(!flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
+    }
+
+    #[test]
+    fn flags_truncation_success() {
+        let bytes = vec![0b0000_0010, 0b0000_0000];
+        let flags = Flags::try_from(bytes).unwrap();
+        assert_eq!(flags.message_type(), &MessageType::Query);
+        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert!(!flags.authoritative_answer());
+        assert!(flags.truncation());
+        assert!(!flags.recursion_desired());
+        assert!(!flags.recursion_available());
+        assert!(!flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
+    }
+
+    #[test]
+    fn flags_recursion_query_success() {
+        let bytes = vec![0b0000_0001, 0b1000_0000];
+        let flags = Flags::try_from(bytes).unwrap();
+        assert_eq!(flags.message_type(), &MessageType::Query);
+        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert!(!flags.authoritative_answer());
+        assert!(!flags.truncation());
+        assert!(flags.recursion_desired());
+        assert!(flags.recursion_available());
+        assert!(!flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
+    }
+
+    #[test]
+    fn flags_bad_field_response_code() {
+        let bytes = vec![0b0000_0000, 0b0000_1111];
+        let flags = Flags::try_from(bytes);
+        assert!(flags.is_err());
+    }
+
+    #[test]
+    fn flags_bad_field_op_code() {
+        let bytes = vec![0b0111_1000, 0b0000_0000];
+        let flags = Flags::try_from(bytes);
+        assert!(flags.is_err());
+    }
+
+    #[test]
+    fn flags_builder_to_binary_success() {
+        let flags = FlagsBuilder::default()
+            .message_type(MessageType::Query)
+            .op(OpCode::StandardQuery)
+            .authoritative_answer(false)
+            .truncation(false)
+            .recursion_desired(false)
+            .resursion_available(false)
+            .answer_authenticated(false)
+            .non_authenticated_data(false)
+            .response(ResponseCode::NoError)
+            .build()
+            .unwrap();
+
+        let bytes = vec![0b0000_0000, 0b0000_0000];
+        assert_eq!(Vec::<u8>::from(flags), bytes);
+    }
+
+    #[test]
+    fn flags_builder_query_to_binary_and_back_success() {
+        let flags = FlagsBuilder::default()
+            .message_type(MessageType::Query)
+            .op(OpCode::InverseQuery)
+            .authoritative_answer(false)
+            .truncation(false)
+            .recursion_desired(true)
+            .resursion_available(false)
+            .answer_authenticated(true)
+            .non_authenticated_data(false)
+            .response(ResponseCode::NoError)
+            .build()
+            .unwrap();
+
+        let bytes = Vec::<u8>::from(flags);
+        let flags = Flags::try_from(bytes).unwrap();
+
+        assert_eq!(flags.message_type(), &MessageType::Query);
+        assert_eq!(flags.op(), &OpCode::InverseQuery);
+        assert!(!flags.authoritative_answer());
+        assert!(!flags.truncation());
+        assert!(flags.recursion_desired());
+        assert!(!flags.recursion_available());
+        assert!(flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
+    }
+
+    #[test]
+    fn flags_from_binary_and_back_success() {
+        let bytes = vec![0b0000_1111, 0b0000_0000];
+        let flags = Flags::try_from(bytes).unwrap();
+
+        let bytes = Vec::<u8>::from(flags);
+        let flags = Flags::try_from(bytes).unwrap();
+
+        assert_eq!(flags.message_type(), &MessageType::Query);
+        assert_eq!(flags.op(), &OpCode::InverseQuery);
+
+        assert!(flags.authoritative_answer());
+        assert!(flags.truncation());
+        assert!(flags.recursion_desired());
+        assert!(!flags.recursion_available());
+        assert!(!flags.answer_authenticated());
+        assert!(!flags.non_authenticated_data());
+        assert_eq!(flags.response(), &ResponseCode::NoError);
     }
 }
