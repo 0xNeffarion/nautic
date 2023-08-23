@@ -10,7 +10,7 @@ pub enum PacketError {
     #[error("Failed to build packet header flags: {0}")]
     FlagsBuilderValidationFailure(#[from] FlagsBuilderError),
 
-     #[error("Failed to build packet header: {0}")]
+    #[error("Failed to build packet header: {0}")]
     HeaderBuilderValidationFailure(#[from] HeaderBuilderError),
 
     #[error("Failed to read flag field: {0}")]

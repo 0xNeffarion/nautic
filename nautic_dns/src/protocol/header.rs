@@ -8,10 +8,20 @@ use super::{Flags, PacketError};
 pub struct Header {
     #[builder(default = "rand::random::<u16>()")]
     id: u16,
+
+    #[builder(default = "crate::protocol::FlagsBuilder::default().build().unwrap()")]
     flags: Flags,
+
+    #[builder(default = "0")]
     questions_size: u16,
+
+    #[builder(default = "0")]
     answers_size: u16,
+
+    #[builder(default = "0")]
     name_servers_size: u16,
+
+    #[builder(default = "0")]
     additional_size: u16,
 }
 
@@ -99,5 +109,98 @@ impl From<Header> for Vec<u8> {
         result.put_u16(header.additional_size());
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::protocol::{FlagsBuilder, MessageType};
+
+    use super::*;
+
+    #[test]
+    fn header_from_binary_1_success() {
+        let bytes = vec![
+            0xa6, 0x29, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+        ];
+
+        let header = Header::try_from(bytes).unwrap();
+
+        assert_eq!(header.id(), 0xa629);
+        assert_eq!(header.flags(), &FlagsBuilder::default().build().unwrap());
+        assert_eq!(header.questions_size(), 1);
+        assert_eq!(header.answers_size(), 0);
+        assert_eq!(header.name_servers_size(), 2);
+        assert_eq!(header.additional_size(), 0);
+    }
+
+    #[test]
+    fn header_from_binary_2_success() {
+        let bytes = vec![
+            0xab,
+            0xaa,
+            0x00,
+            0b1000_0000,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            0x02,
+            0x00,
+            0x00,
+        ];
+
+        let header = Header::try_from(bytes).unwrap();
+
+        assert_eq!(header.id(), 0xabaa);
+        assert_eq!(
+            header.flags(),
+            &FlagsBuilder::default()
+                .message_type(MessageType::Response)
+                .build()
+                .unwrap()
+        );
+        assert_eq!(header.questions_size(), 1);
+        assert_eq!(header.answers_size(), 0);
+        assert_eq!(header.name_servers_size(), 2);
+        assert_eq!(header.additional_size(), 0);
+    }
+
+    #[test]
+    fn header_into_binary_success() {
+        let header = HeaderBuilder::default()
+            .id(0xf555)
+            .flags(FlagsBuilder::default().build().unwrap())
+            .questions_size(1)
+            .answers_size(1)
+            .name_servers_size(3)
+            .additional_size(1)
+            .build()
+            .unwrap();
+
+        let bytes: Vec<u8> = header.into();
+
+        assert_eq!(
+            bytes,
+            vec![0xf5, 0x55, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x01]
+        );
+    }
+
+    #[test]
+    fn header_to_binary_and_back_success() {
+        let header = HeaderBuilder::default()
+            .flags(FlagsBuilder::default().build().unwrap())
+            .questions_size(1)
+            .answers_size(1)
+            .name_servers_size(3)
+            .additional_size(1)
+            .build()
+            .unwrap();
+
+        let bytes: Vec<u8> = header.clone().into();
+        let header_from_bytes = Header::try_from(bytes).unwrap();
+
+        assert_eq!(header, header_from_bytes);
     }
 }

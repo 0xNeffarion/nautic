@@ -5,7 +5,10 @@ use super::{BitParseError, PacketError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct Flags {
+    #[builder(default = "MessageType::Query")]
     message_type: MessageType,
+
+    #[builder(default = "OpCode::StandardQuery")]
     op: OpCode,
 
     #[builder(default = "false")]

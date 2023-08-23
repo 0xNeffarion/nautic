@@ -26,7 +26,6 @@ impl DnsResolver {
     ) -> Result<String, NauticDnsError> {
         let domain = parse_domain(target)?;
 
-
         todo!()
     }
 }

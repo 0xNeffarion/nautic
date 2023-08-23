@@ -1,7 +1,6 @@
 use thiserror::*;
 use tokio::io;
 
-
 #[derive(Debug, Error)]
 pub enum NauticDnsError {
     #[error("Connection to the server has failed")]
@@ -16,4 +15,3 @@ pub enum NauticDnsError {
     #[error("Target is not a valid hostname: {0}")]
     InvalidTarget(String),
 }
-
