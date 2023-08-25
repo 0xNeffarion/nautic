@@ -2,7 +2,7 @@
 name = "nautic_dns"
 version = "0.0.1-alpha"
 edition = "2021"
-description = ""
+description = "A DNS library for handling DNS requests and responses."
 repository = "https://github.com/0xNeffarion/nautic"
 authors = ["Vasco Serrano <main@neffware.com>"]
 readme = "../README.md"
