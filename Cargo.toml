@@ -34,4 +34,4 @@ opt-level = 3
 opt-level = 3
 
 [dependencies]
-nautic_dns = { path = "nautic_dns" }
+nautic_dns = { version = "0.0.1-alpha", path = "nautic_dns" }
