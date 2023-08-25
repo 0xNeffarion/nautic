@@ -6,7 +6,7 @@ members = [
 
 [package]
 name = "nautic"
-version = "0.1.0"
+version = "0.0.1-alpha"
 edition = "2021"
 description = ""
 repository = "https://github.com/0xNeffarion/nautic"

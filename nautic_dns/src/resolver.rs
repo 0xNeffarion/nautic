@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::net::{ToSocketAddrs, UdpSocket};
+use tokio::net::UdpSocket;
 use url::Url;
 
 use crate::{errors::NauticDnsError, util::parse_domain};
