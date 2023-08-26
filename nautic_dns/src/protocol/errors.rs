@@ -25,9 +25,3 @@ pub enum BitParseError {
     #[error("Failure while attempting to read bits at entry: '{0}'")]
     MalformedBits(String),
 }
-
-#[derive(Debug, Error)]
-pub enum TransportPacketRecordsError {
-    #[error("Failed to recognize packet record type: {0}")]
-    UnknownRecord(u16),
-}

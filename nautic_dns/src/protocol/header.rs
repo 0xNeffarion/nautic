@@ -51,11 +51,11 @@ impl Header {
     }
 }
 
-impl TryFrom<Vec<u8>> for Header {
+impl TryFrom<&[u8]> for Header {
     type Error = PacketError;
 
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let mut reader = bitter::BigEndianReader::new(&bytes);
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let mut reader = bitter::BigEndianReader::new(bytes);
 
         let id = reader
             .read_u16()
@@ -124,7 +124,7 @@ mod tests {
             0xa6, 0x29, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
         ];
 
-        let header = Header::try_from(bytes).unwrap();
+        let header = Header::try_from(bytes.as_slice()).unwrap();
 
         assert_eq!(header.id(), 0xa629);
         assert_eq!(header.flags(), &FlagsBuilder::default().build().unwrap());
@@ -151,7 +151,7 @@ mod tests {
             0x00,
         ];
 
-        let header = Header::try_from(bytes).unwrap();
+        let header = Header::try_from(bytes.as_slice()).unwrap();
 
         assert_eq!(header.id(), 0xabaa);
         assert_eq!(
@@ -199,7 +199,7 @@ mod tests {
             .unwrap();
 
         let bytes: Vec<u8> = header.clone().into();
-        let header_from_bytes = Header::try_from(bytes).unwrap();
+        let header_from_bytes = Header::try_from(bytes.as_slice()).unwrap();
 
         assert_eq!(header, header_from_bytes);
     }

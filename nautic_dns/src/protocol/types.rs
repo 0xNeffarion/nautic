@@ -2,7 +2,7 @@ use super::BitParseError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(u16)]
-pub enum Record {
+pub enum RecordType {
     A = 1,
     AAAA = 28,
     CNAME = 5,
@@ -10,7 +10,7 @@ pub enum Record {
     NS = 2,
 }
 
-impl TryFrom<u16> for Record {
+impl TryFrom<u16> for RecordType {
     type Error = BitParseError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
