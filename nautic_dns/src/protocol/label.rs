@@ -1,91 +1,90 @@
-use std::ops::{Deref, DerefMut};
-
-use super::BitParseError;
+use super::{BitParseError, ByteScanner, ScanResult};
+use crate::protocol::ByteScan;
 use bitter::BitReader;
-use bytes::BufMut;
+use bytes::{BufMut, Bytes, BytesMut};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LabelSequence(String, u32);
+pub struct LabelSequence(Rc<str>);
 
 impl LabelSequence {
-    pub fn new(name: &str) -> Self {
-        let labels = name.trim().split('.').collect::<Vec<&str>>();
-        let bits = (8 * labels.len() as u32)
-            + (labels.into_iter().map(|x| x.len() * 8).sum::<usize>() as u32)
-            + 8;
-        Self(name.to_owned(), bits)
+    pub fn new(value: &str) -> Self {
+        Self(Rc::from(value))
     }
 
-    pub fn total_bits(&self) -> u32 {
-        self.1
+    pub fn total_bits(&self) -> usize {
+        self.0.clone().len()
     }
-}
 
-impl Deref for LabelSequence {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn label(&self) -> &str {
+        self.0.as_ref()
     }
 }
 
-impl DerefMut for LabelSequence {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl AsRef<str> for LabelSequence {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<&[u8]> for LabelSequence {
+impl ByteScanner for LabelSequence {
     type Error = BitParseError;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let mut reader = bitter::BigEndianReader::new(value);
-        let mut name = String::new();
-        let mut bits = 0;
+    fn try_scan(message: &[u8], cursor: usize) -> ScanResult<Self, Self::Error> {
+        let mut reader = bitter::BigEndianReader::new(&message[cursor..]);
 
-        for i in 0..64 {
-            // Read the the lenght of the next label
+        let mut name = String::new();
+        let mut label_byte_size = 0;
+
+        for _ in 0..u8::MAX {
             let length = reader
                 .read_u8()
-                .ok_or_else(|| BitParseError::MalformedBits("Label Lenght".into()))?;
+                .ok_or_else(|| BitParseError::MalformedBits("Label length".into()))?;
 
-            bits += 8;
-
-            // If the length is 0, we've reached the end of the domain name.
+            label_byte_size += 1;
             if length == 0 {
                 break;
             }
 
-            // Add a '.' to the name if it isnt the first iteration
-            if i != 0 {
+            if !name.is_empty() {
                 name.push('.');
             }
 
-            for _ in 0..length {
-                let char_bits = reader
+            // Check if it is a pointer. If so, read it and exit loop
+            if length & 0b11000000 != 0 {
+                // Obtain offset for label
+                let offset = reader
                     .read_u8()
-                    .ok_or_else(|| BitParseError::MalformedBits("Label Character".into()))?;
+                    .ok_or_else(|| BitParseError::MalformedBits("Label pointer offset".into()))?;
 
-                name.push(char_bits as char);
-                bits += 8;
+                let offset = u16::from_be_bytes([length & 0b00111111, offset]) as usize;
+
+                // Read label from message with cursor set with pointer offset
+                let label_scan = LabelSequence::try_scan(message, offset)?;
+                name.push_str(label_scan.value().label());
+                label_byte_size += 1;
+                break;
+            }
+
+            for _ in 0..length {
+                let character = reader
+                    .read_u8()
+                    .ok_or_else(|| BitParseError::MalformedBits("Label Character".into()))?
+                    as char;
+
+                label_byte_size += 1;
+                name.push(character);
             }
         }
 
-        Ok(Self(name, bits))
+        Ok(ByteScan::new(LabelSequence::new(&name), label_byte_size))
     }
 }
 
-impl From<LabelSequence> for Vec<u8> {
+impl From<LabelSequence> for Bytes {
     fn from(value: LabelSequence) -> Self {
-        let mut buffer = Vec::new();
+        (&value).into()
+    }
+}
 
-        let labels = value.trim().split('.').collect::<Vec<&str>>();
+impl From<&LabelSequence> for Bytes {
+    fn from(value: &LabelSequence) -> Self {
+        let mut buffer = BytesMut::new();
+        let labels = value.label().trim().split('.').collect::<Vec<&str>>();
 
         for label in labels {
             let length = label.len() as u8;
@@ -98,8 +97,7 @@ impl From<LabelSequence> for Vec<u8> {
         }
 
         buffer.put_u8(0);
-
-        buffer
+        buffer.freeze()
     }
 }
 
@@ -107,26 +105,30 @@ impl From<LabelSequence> for Vec<u8> {
 mod tests {
 
     use super::LabelSequence;
-    use std::convert::TryFrom;
+    use crate::protocol::ByteScanner;
+    use bytes::Bytes;
 
     #[test]
     fn sample_domain_label_sequence_to_bytes_and_back_success() {
         let label_sequence = LabelSequence::new("www.github.com");
-        let bytes: Vec<u8> = label_sequence.clone().into();
+        let bytes: Bytes = label_sequence.clone().into();
         let label_sequence2 =
-            LabelSequence::try_from(bytes.as_slice()).expect("Failed to parse label sequence");
+            LabelSequence::try_scan(&bytes, 0).expect("Failed to parse label sequence");
+        let label_sequence2 = label_sequence2.value();
 
-        assert_eq!(label_sequence, label_sequence2);
+        assert_eq!(label_sequence.label(), label_sequence2.label());
     }
 
     #[test]
     fn sample_sub_domain_label_sequence_to_bytes_and_back_success() {
         let label_sequence = LabelSequence::new("this.is.a.subdomain.github.com");
-        let bytes: Vec<u8> = label_sequence.clone().into();
+        let bytes: Bytes = label_sequence.clone().into();
         let label_sequence2 =
-            LabelSequence::try_from(bytes.as_slice()).expect("Failed to parse label sequence");
+            LabelSequence::try_scan(&bytes, 0).expect("Failed to parse label sequence");
 
-        assert_eq!(label_sequence, label_sequence2);
+        let label_sequence2 = label_sequence2.value();
+
+        assert_eq!(label_sequence.label(), label_sequence2.label());
     }
 
     #[test]
@@ -142,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_bytes_sample_sub_domain_sucesss() {
+    fn parse_bytes_sample_sub_domain_success() {
         let bytes = [
             0x04, 0x74, 0x68, 0x69, 0x73, 0x02, 0x69, 0x73, 0x01, 0x61, 0x09, 0x73, 0x75, 0x62,
             0x64, 0x6f, 0x6d, 0x61, 0x69, 0x6e, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03,
@@ -150,28 +152,32 @@ mod tests {
         ];
 
         let label_sequence =
-            LabelSequence::try_from(&bytes[..]).expect("Failed to parse label sequence");
+            LabelSequence::try_scan(&bytes[..], 0).expect("Failed to parse label sequence");
 
-        assert_eq!(*label_sequence, "this.is.a.subdomain.github.com");
+        let label_sequence = label_sequence.value();
+
+        assert_eq!(label_sequence.label(), "this.is.a.subdomain.github.com");
     }
 
     #[test]
-    fn parse_bytes_sample_domain_sucesss() {
+    fn parse_bytes_sample_domain_success() {
         let bytes = [
             0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03, 0x63, 0x6f,
             0x6d, 0x00,
         ];
 
         let label_sequence =
-            LabelSequence::try_from(&bytes[..]).expect("Failed to parse label sequence");
+            LabelSequence::try_scan(&bytes[..], 0).expect("Failed to parse label sequence");
 
-        assert_eq!(*label_sequence, "www.github.com");
+        let label_sequence = label_sequence.value().label();
+
+        assert_eq!(label_sequence, "www.github.com");
     }
 
     #[test]
     fn parse_bytes_sample_malformed_bytes_fails() {
         let bytes = [0x03, 0x77, 0x03, 0x63, 0x6f, 0x6d];
-        let label_sequence = LabelSequence::try_from(&bytes[..]);
+        let label_sequence = LabelSequence::try_scan(&bytes[..], 0);
 
         assert!(label_sequence.is_err());
     }
@@ -183,7 +189,7 @@ mod tests {
             0x6d, 0x00,
         ];
 
-        let label_sequence = LabelSequence::try_from(&bytes[..]);
+        let label_sequence = LabelSequence::try_scan(&bytes[..], 0);
 
         assert!(label_sequence.is_err());
     }

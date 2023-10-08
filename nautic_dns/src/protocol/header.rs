@@ -1,8 +1,9 @@
+use crate::protocol::{ByteScan, ByteScanner, ScanResult};
 use bitter::BitReader;
-use bytes::BufMut;
+use bytes::{BufMut, Bytes, BytesMut};
 use derive_builder::Builder;
 
-use super::{Flags, PacketError};
+use super::{Flags, MessageError};
 
 #[derive(Debug, Clone, Builder, PartialEq, Eq)]
 pub struct Header {
@@ -29,77 +30,73 @@ impl Header {
     pub fn id(&self) -> u16 {
         self.id
     }
-
     pub fn flags(&self) -> &Flags {
         &self.flags
     }
-
     pub fn questions_size(&self) -> u16 {
         self.questions_size
     }
-
     pub fn answers_size(&self) -> u16 {
         self.answers_size
     }
-
     pub fn name_servers_size(&self) -> u16 {
         self.name_servers_size
     }
-
     pub fn additional_size(&self) -> u16 {
         self.additional_size
     }
 }
 
-impl TryFrom<&[u8]> for Header {
-    type Error = PacketError;
+impl ByteScanner for Header {
+    type Error = MessageError;
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let mut reader = bitter::BigEndianReader::new(bytes);
+    fn try_scan(message: &[u8], cursor: usize) -> ScanResult<Self, Self::Error> {
+        let mut reader = bitter::BigEndianReader::new(&message[cursor..]);
 
         let id = reader
             .read_u16()
-            .ok_or_else(|| PacketError::MalformedBits("ID".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("ID".into()))?;
 
         let flags_bytes = reader
             .read_u16()
-            .ok_or_else(|| PacketError::MalformedBits("Flags".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Flags".into()))?;
 
-        let flags = Flags::try_from(flags_bytes.to_le_bytes().to_vec())?;
+        let flags = Flags::try_scan(&flags_bytes.to_be_bytes(), 0)?;
+        let flags = flags.value();
 
         let questions_size = reader
             .read_u16()
-            .ok_or_else(|| PacketError::MalformedBits("Questions Size".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Questions Size".into()))?;
 
         let answers_size = reader
             .read_u16()
-            .ok_or_else(|| PacketError::MalformedBits("Answers Size".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Answers Size".into()))?;
 
         let name_servers_size = reader
             .read_u16()
-            .ok_or_else(|| PacketError::MalformedBits("Name Servers Size".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Name Servers Size".into()))?;
 
         let additional_size = reader
             .read_u16()
-            .ok_or_else(|| PacketError::MalformedBits("Additional Size".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Additional Size".into()))?;
 
         let header = HeaderBuilder::default()
             .id(id)
-            .flags(flags)
+            .flags(flags.clone())
             .questions_size(questions_size)
             .answers_size(answers_size)
             .name_servers_size(name_servers_size)
             .additional_size(additional_size)
             .build()?;
 
-        Ok(header)
+        Ok(ByteScan::new(header, 12))
     }
 }
 
-impl From<Header> for Vec<u8> {
+impl From<Header> for Bytes {
     fn from(header: Header) -> Self {
-        let mut result = vec![];
-        let flags: Vec<u8> = header.flags().clone().into();
+        let mut result = BytesMut::new();
+        let flags: Bytes = header.flags().into();
 
         result.put_u16(header.id());
         result.put_slice(&flags);
@@ -108,7 +105,7 @@ impl From<Header> for Vec<u8> {
         result.put_u16(header.name_servers_size());
         result.put_u16(header.additional_size());
 
-        result
+        result.freeze()
     }
 }
 
@@ -124,7 +121,8 @@ mod tests {
             0xa6, 0x29, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
         ];
 
-        let header = Header::try_from(bytes.as_slice()).unwrap();
+        let header = Header::try_scan(&bytes, 0).expect("Failed to scan header");
+        let header = header.value();
 
         assert_eq!(header.id(), 0xa629);
         assert_eq!(header.flags(), &FlagsBuilder::default().build().unwrap());
@@ -151,7 +149,8 @@ mod tests {
             0x00,
         ];
 
-        let header = Header::try_from(bytes.as_slice()).unwrap();
+        let header = Header::try_scan(&bytes, 0).expect("Failed to scan header");
+        let header = header.value();
 
         assert_eq!(header.id(), 0xabaa);
         assert_eq!(
@@ -179,7 +178,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let bytes: Vec<u8> = header.into();
+        let bytes: Bytes = header.into();
 
         assert_eq!(
             bytes,
@@ -198,9 +197,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let bytes: Vec<u8> = header.clone().into();
-        let header_from_bytes = Header::try_from(bytes.as_slice()).unwrap();
+        let bytes: Bytes = header.clone().into();
+        let header_from_bytes = Header::try_scan(&bytes, 0).expect("Failed to scan header");
+        let header_from_bytes = header_from_bytes.value();
 
-        assert_eq!(header, header_from_bytes);
+        assert_eq!(header, *header_from_bytes);
     }
 }

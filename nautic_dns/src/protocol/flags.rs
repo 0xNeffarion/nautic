@@ -1,14 +1,16 @@
+use crate::protocol::{ByteScan, ByteScanner, ScanResult};
 use bitter::BitReader;
+use bytes::Bytes;
 use derive_builder::Builder;
 
-use super::{BitParseError, PacketError};
+use super::{BitParseError, MessageError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct Flags {
     #[builder(default = "MessageType::Query")]
     message_type: MessageType,
 
-    #[builder(default = "OpCode::StandardQuery")]
+    #[builder(default = "OpCode::Query")]
     op: OpCode,
 
     #[builder(default = "false")]
@@ -21,7 +23,7 @@ pub struct Flags {
     recursion_desired: bool,
 
     #[builder(default = "false")]
-    resursion_available: bool,
+    recursion_available: bool,
 
     #[builder(default = "false")]
     answer_authenticated: bool,
@@ -37,90 +39,80 @@ impl Flags {
     pub fn message_type(&self) -> &MessageType {
         &self.message_type
     }
-
     pub fn op(&self) -> &OpCode {
         &self.op
     }
-
     pub fn authoritative_answer(&self) -> bool {
         self.authoritative_answer
     }
-
     pub fn truncation(&self) -> bool {
         self.truncation
     }
-
     pub fn recursion_desired(&self) -> bool {
         self.recursion_desired
     }
-
     pub fn recursion_available(&self) -> bool {
-        self.resursion_available
+        self.recursion_available
     }
-
     pub fn answer_authenticated(&self) -> bool {
         self.answer_authenticated
     }
-
     pub fn non_authenticated_data(&self) -> bool {
         self.non_authenticated_data
     }
-
     pub fn response(&self) -> &ResponseCode {
         &self.response
     }
 }
 
-impl TryFrom<Vec<u8>> for Flags {
-    type Error = PacketError;
+impl ByteScanner for Flags {
+    type Error = MessageError;
 
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let bytes = [bytes[0], bytes[1]];
-        let mut reader = bitter::BigEndianReader::new(&bytes);
-
+    fn try_scan(message: &[u8], cursor: usize) -> ScanResult<Self, Self::Error> {
+        let mut reader = bitter::BigEndianReader::new(&message[cursor..]);
         let bits = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("MessageType".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("MessageType".into()))?;
 
         let message_type = MessageType::try_from(bits as u8)?;
 
         let bits = reader
             .read_bits(4)
-            .ok_or_else(|| PacketError::MalformedBits("OPCode".into()))? as u8;
+            .ok_or_else(|| MessageError::MalformedBits("OPCode".into()))? as u8;
 
         let op = OpCode::try_from(bits)?;
 
         let authoritative_answer = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("AuthorativeAnswer".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("AuthoritativeAnswer".into()))?;
 
         let truncation = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("Truncation".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Truncation".into()))?;
 
         let recursion_desired = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("RecursionDesired".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("RecursionDesired".into()))?;
 
         let recursion_available = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("ResursionAvailable".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("RecursionAvailable".into()))?;
 
         let _reserved = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("Reserved".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("Reserved".into()))?;
 
         let answer_authenticated = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("AnswerAuthenticated".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("AnswerAuthenticated".into()))?;
 
         let non_authenticated_data = reader
             .read_bit()
-            .ok_or_else(|| PacketError::MalformedBits("NonAuthenticatedData".into()))?;
+            .ok_or_else(|| MessageError::MalformedBits("NonAuthenticatedData".into()))?;
 
         let bits = reader
             .read_bits(4)
-            .ok_or_else(|| PacketError::MalformedBits("RCODE".into()))? as u8;
+            .ok_or_else(|| MessageError::MalformedBits("RCode".into()))? as u8;
 
         let response = ResponseCode::try_from(bits)?;
 
@@ -130,18 +122,24 @@ impl TryFrom<Vec<u8>> for Flags {
             .authoritative_answer(authoritative_answer)
             .truncation(truncation)
             .recursion_desired(recursion_desired)
-            .resursion_available(recursion_available)
+            .recursion_available(recursion_available)
             .answer_authenticated(answer_authenticated)
             .non_authenticated_data(non_authenticated_data)
             .response(response)
             .build()?;
 
-        Ok(flags)
+        Ok(ByteScan::new(flags, 2))
     }
 }
 
-impl From<Flags> for Vec<u8> {
+impl From<Flags> for Bytes {
     fn from(flags: Flags) -> Self {
+        (&flags).into()
+    }
+}
+
+impl From<&Flags> for Bytes {
+    fn from(flags: &Flags) -> Self {
         let mut result = 0u16;
 
         result |= (flags.message_type().clone() as u16) << 15;
@@ -156,7 +154,7 @@ impl From<Flags> for Vec<u8> {
         result |= (flags.non_authenticated_data() as u16) << 4;
         result |= flags.response().clone() as u16 & 0b1111;
 
-        result.to_be_bytes().to_vec()
+        Bytes::copy_from_slice(&result.to_be_bytes())
     }
 }
 
@@ -182,9 +180,9 @@ impl TryFrom<u8> for MessageType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OpCode {
-    StandardQuery = 0b0000,
-    InverseQuery = 0b0001,
-    ServerStatus = 0b0010,
+    Query = 0b0000,
+    IQuery = 0b0001,
+    Status = 0b0010,
 }
 
 impl TryFrom<u8> for OpCode {
@@ -192,9 +190,9 @@ impl TryFrom<u8> for OpCode {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0b0000 => Ok(Self::StandardQuery),
-            0b0001 => Ok(Self::InverseQuery),
-            0b0010 => Ok(Self::ServerStatus),
+            0b0000 => Ok(Self::Query),
+            0b0001 => Ok(Self::IQuery),
+            0b0010 => Ok(Self::Status),
             _ => Err(BitParseError::BadField("OPCODE".to_owned(), value as u64)),
         }
     }
@@ -235,9 +233,10 @@ mod tests {
     #[test]
     fn flags_simple_query_success() {
         let bytes = vec![0b0000_0000, 0b0000_0000];
-        let flags = Flags::try_from(bytes).unwrap();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
         assert_eq!(flags.message_type(), &MessageType::Query);
-        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert_eq!(flags.op(), &OpCode::Query);
         assert!(!flags.authoritative_answer());
         assert!(!flags.truncation());
         assert!(!flags.recursion_desired());
@@ -250,9 +249,10 @@ mod tests {
     #[test]
     fn flags_simple_response_success() {
         let bytes = vec![0b1000_0000, 0b0000_0000];
-        let flags = Flags::try_from(bytes).unwrap();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
         assert_eq!(flags.message_type(), &MessageType::Response);
-        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert_eq!(flags.op(), &OpCode::Query);
         assert!(!flags.authoritative_answer());
         assert!(!flags.truncation());
         assert!(!flags.recursion_desired());
@@ -265,9 +265,10 @@ mod tests {
     #[test]
     fn flags_authoritative_answer_success() {
         let bytes = vec![0b0000_0100, 0b0000_0000];
-        let flags = Flags::try_from(bytes).unwrap();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
         assert_eq!(flags.message_type(), &MessageType::Query);
-        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert_eq!(flags.op(), &OpCode::Query);
         assert!(flags.authoritative_answer());
         assert!(!flags.truncation());
         assert!(!flags.recursion_desired());
@@ -280,9 +281,10 @@ mod tests {
     #[test]
     fn flags_truncation_success() {
         let bytes = vec![0b0000_0010, 0b0000_0000];
-        let flags = Flags::try_from(bytes).unwrap();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
         assert_eq!(flags.message_type(), &MessageType::Query);
-        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert_eq!(flags.op(), &OpCode::Query);
         assert!(!flags.authoritative_answer());
         assert!(flags.truncation());
         assert!(!flags.recursion_desired());
@@ -295,9 +297,11 @@ mod tests {
     #[test]
     fn flags_recursion_query_success() {
         let bytes = vec![0b0000_0001, 0b1000_0000];
-        let flags = Flags::try_from(bytes).unwrap();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+
+        let flags = flags.value();
         assert_eq!(flags.message_type(), &MessageType::Query);
-        assert_eq!(flags.op(), &OpCode::StandardQuery);
+        assert_eq!(flags.op(), &OpCode::Query);
         assert!(!flags.authoritative_answer());
         assert!(!flags.truncation());
         assert!(flags.recursion_desired());
@@ -310,14 +314,14 @@ mod tests {
     #[test]
     fn flags_bad_field_response_code() {
         let bytes = vec![0b0000_0000, 0b0000_1111];
-        let flags = Flags::try_from(bytes);
+        let flags = Flags::try_scan(&bytes, 0);
         assert!(flags.is_err());
     }
 
     #[test]
     fn flags_bad_field_op_code() {
         let bytes = vec![0b0111_1000, 0b0000_0000];
-        let flags = Flags::try_from(bytes);
+        let flags = Flags::try_scan(&bytes, 0);
         assert!(flags.is_err());
     }
 
@@ -325,11 +329,11 @@ mod tests {
     fn flags_builder_to_binary_success() {
         let flags = FlagsBuilder::default()
             .message_type(MessageType::Query)
-            .op(OpCode::StandardQuery)
+            .op(OpCode::Query)
             .authoritative_answer(false)
             .truncation(false)
             .recursion_desired(false)
-            .resursion_available(false)
+            .recursion_available(false)
             .answer_authenticated(false)
             .non_authenticated_data(false)
             .response(ResponseCode::NoError)
@@ -337,29 +341,31 @@ mod tests {
             .unwrap();
 
         let bytes = vec![0b0000_0000, 0b0000_0000];
-        assert_eq!(Vec::<u8>::from(flags), bytes);
+        let to_bytes: Bytes = flags.into();
+        assert_eq!(to_bytes, bytes);
     }
 
     #[test]
     fn flags_builder_query_to_binary_and_back_success() {
         let flags = FlagsBuilder::default()
             .message_type(MessageType::Query)
-            .op(OpCode::InverseQuery)
+            .op(OpCode::IQuery)
             .authoritative_answer(false)
             .truncation(false)
             .recursion_desired(true)
-            .resursion_available(false)
+            .recursion_available(false)
             .answer_authenticated(true)
             .non_authenticated_data(false)
             .response(ResponseCode::NoError)
             .build()
             .unwrap();
 
-        let bytes = Vec::<u8>::from(flags);
-        let flags = Flags::try_from(bytes).unwrap();
+        let bytes: Bytes = flags.into();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
 
         assert_eq!(flags.message_type(), &MessageType::Query);
-        assert_eq!(flags.op(), &OpCode::InverseQuery);
+        assert_eq!(flags.op(), &OpCode::IQuery);
         assert!(!flags.authoritative_answer());
         assert!(!flags.truncation());
         assert!(flags.recursion_desired());
@@ -372,14 +378,15 @@ mod tests {
     #[test]
     fn flags_from_binary_and_back_success() {
         let bytes = vec![0b0000_1111, 0b0000_0000];
-        let flags = Flags::try_from(bytes).unwrap();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
 
-        let bytes = Vec::<u8>::from(flags);
-        let flags = Flags::try_from(bytes).unwrap();
+        let bytes: Bytes = flags.into();
+        let flags = Flags::try_scan(&bytes, 0).expect("Failed to scan flags");
+        let flags = flags.value();
 
         assert_eq!(flags.message_type(), &MessageType::Query);
-        assert_eq!(flags.op(), &OpCode::InverseQuery);
-
+        assert_eq!(flags.op(), &OpCode::IQuery);
         assert!(flags.authoritative_answer());
         assert!(flags.truncation());
         assert!(flags.recursion_desired());

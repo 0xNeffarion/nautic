@@ -1,5 +1,6 @@
+use crate::protocol::{ByteScan, ByteScanner, ScanResult};
 use bitter::BitReader;
-use bytes::BufMut;
+use bytes::{BufMut, Bytes, BytesMut};
 
 use super::{label::LabelSequence, types::*, BitParseError, Class};
 
@@ -19,27 +20,25 @@ impl Query {
         }
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &LabelSequence {
         &self.name
     }
-
     pub fn r#type(&self) -> &RecordType {
         &self.r#type
     }
-
     pub fn class(&self) -> &Class {
         &self.class
     }
 }
 
-impl TryFrom<&[u8]> for Query {
+impl ByteScanner for Query {
     type Error = BitParseError;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let name = LabelSequence::try_from(value)?;
-        let name_bytes = (name.total_bits() / 8) as usize;
+    fn try_scan(message: &[u8], cursor: usize) -> ScanResult<Self, Self::Error> {
+        let name = LabelSequence::try_scan(message, cursor)?.value().clone();
+        let name_bytes = name.total_bits() / 8;
 
-        let value = &value[name_bytes..];
+        let value = &message[name_bytes..];
         let mut reader = bitter::BigEndianReader::new(value);
 
         let r#type: RecordType = reader
@@ -52,30 +51,37 @@ impl TryFrom<&[u8]> for Query {
             .ok_or_else(|| BitParseError::MalformedBits("Class Type".into()))?
             .try_into()?;
 
-        Ok(Query {
-            name,
-            r#type,
-            class,
-        })
+        Ok(ByteScan::new(
+            Query::new(name, r#type, class),
+            name_bytes + 4,
+        ))
     }
 }
 
-impl From<Query> for Vec<u8> {
+impl From<Query> for Bytes {
     fn from(value: Query) -> Self {
-        let mut buffer = vec![];
-        let name: Vec<u8> = value.name.into();
+        (&value).into()
+    }
+}
 
-        buffer.put_slice(name.as_slice());
+impl From<&Query> for Bytes {
+    fn from(value: &Query) -> Self {
+        let mut buffer = BytesMut::new();
+        let value = value.clone();
+        let name = Bytes::from(value.name);
+
+        buffer.put_slice(&name);
         buffer.put_u16(value.r#type as u16);
         buffer.put_u16(value.class as u16);
 
-        buffer
+        buffer.freeze()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::{label::LabelSequence, Class, RecordType};
+    use crate::protocol::{label::LabelSequence, ByteScanner, Class, RecordType};
+    use bytes::Bytes;
 
     #[test]
     fn sample_domain_query_a_to_bytes_success() {
@@ -84,15 +90,15 @@ mod tests {
         let class = Class::IN;
 
         let query = super::Query::new(LabelSequence::new(name), r#type, class);
-        let bytes: Vec<u8> = query.clone().into();
+        let bytes: Bytes = query.clone().into();
 
         assert_eq!(bytes.len(), 20);
         assert_eq!(
             bytes,
-            [
+            Bytes::copy_from_slice(&[
                 0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03, 0x63, 0x6f,
-                0x6d, 0x00, 0x00, 0x01, 0x00, 0x01
-            ]
+                0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
+            ])
         );
     }
 
@@ -103,16 +109,16 @@ mod tests {
         let class = Class::IN;
 
         let query = super::Query::new(LabelSequence::new(name), r#type, class);
-        let bytes: Vec<u8> = query.clone().into();
+        let bytes: Bytes = query.clone().into();
 
         assert_eq!(bytes.len(), 36);
         assert_eq!(
             bytes,
-            [
+            Bytes::copy_from_slice(&[
                 0x04, 0x74, 0x68, 0x69, 0x73, 0x02, 0x69, 0x73, 0x01, 0x61, 0x09, 0x73, 0x75, 0x62,
                 0x64, 0x6f, 0x6d, 0x61, 0x69, 0x6e, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03,
                 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01
-            ]
+            ])
         );
     }
 
@@ -123,43 +129,45 @@ mod tests {
         let class = Class::IN;
 
         let query = super::Query::new(LabelSequence::new(name), r#type, class);
-        let bytes: Vec<u8> = query.clone().into();
+        let bytes: Bytes = query.clone().into();
 
         assert_eq!(bytes.len(), 20);
         assert_eq!(
             bytes,
-            [
+            Bytes::copy_from_slice(&[
                 0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03, 0x63, 0x6f,
                 0x6d, 0x00, 0x00, 0x1c, 0x00, 0x01
-            ]
+            ])
         );
     }
 
     #[test]
     fn parse_bytes_query_a_sample_domain_success() {
-        let bytes = [
+        let bytes = Bytes::copy_from_slice(&[
             0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03, 0x63, 0x6f,
             0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
-        ];
+        ]);
 
-        let query = super::Query::try_from(bytes.as_slice()).expect("Failed to parse query");
+        let query = super::Query::try_scan(&bytes, 0).expect("Failed to parse query");
+        let query = query.value();
 
-        assert_eq!(query.name(), "www.github.com");
+        assert_eq!(query.name().label(), "www.github.com");
         assert_eq!(query.r#type(), &RecordType::A);
         assert_eq!(query.class(), &Class::IN);
     }
 
     #[test]
     fn parse_bytes_query_aaaa_sample_sub_domain_success() {
-        let bytes = [
+        let bytes = Bytes::copy_from_slice(&[
             0x04, 0x74, 0x68, 0x69, 0x73, 0x02, 0x69, 0x73, 0x01, 0x61, 0x09, 0x73, 0x75, 0x62,
             0x64, 0x6f, 0x6d, 0x61, 0x69, 0x6e, 0x06, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x03,
             0x63, 0x6f, 0x6d, 0x00, 0x00, 0x1c, 0x00, 0x01,
-        ];
+        ]);
 
-        let query = super::Query::try_from(bytes.as_slice()).expect("Failed to parse query");
+        let query = super::Query::try_scan(&bytes, 0).expect("Failed to parse query");
+        let query = query.value();
 
-        assert_eq!(query.name(), "this.is.a.subdomain.github.com");
+        assert_eq!(query.name().label(), "this.is.a.subdomain.github.com");
         assert_eq!(query.r#type(), &RecordType::AAAA);
         assert_eq!(query.class(), &Class::IN);
     }

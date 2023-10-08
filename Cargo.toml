@@ -13,6 +13,7 @@ repository = "https://github.com/0xNeffarion/nautic"
 authors = ["Vasco Serrano <main@neffware.com>"]
 readme = "README.md"
 license = "MIT"
+rust-version = "1.71"
 
 [lib]
 path = "src/lib.rs"

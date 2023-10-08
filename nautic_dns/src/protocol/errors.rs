@@ -3,7 +3,7 @@ use thiserror::*;
 use super::{flags::FlagsBuilderError, HeaderBuilderError};
 
 #[derive(Debug, Error)]
-pub enum PacketError {
+pub enum MessageError {
     #[error("Failed to read bits from packet at: {0}")]
     MalformedBits(String),
 

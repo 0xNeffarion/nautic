@@ -1,18 +1,19 @@
-use super::{types::*, BitParseError, Class};
+use super::{types::*, Class};
+use crate::protocol::{BitParseError, ByteScanner, LabelSequence, ScanResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
-    name: String,
-    r#type: RecordType,
-    class: Class,
-    ttl: u32,
-    length: u16,
-    data: String,
+    pub name: LabelSequence,
+    pub r#type: RecordType,
+    pub class: Class,
+    pub ttl: u32,
+    pub length: u16,
+    pub data: String,
 }
 
 impl Record {
     pub fn new(
-        name: String,
+        name: LabelSequence,
         r#type: RecordType,
         class: Class,
         ttl: u32,
@@ -30,7 +31,7 @@ impl Record {
     }
 
     pub fn name(&self) -> &str {
-        &self.name
+        self.name.label()
     }
 
     pub fn r#type(&self) -> &RecordType {
@@ -51,6 +52,35 @@ impl Record {
 
     pub fn data(&self) -> &str {
         &self.data
+    }
+}
+
+impl ByteScanner for Record {
+    type Error = BitParseError;
+
+    fn try_scan(message: &[u8], cursor: usize) -> ScanResult<Self, Self::Error> {
+        let scan = LabelSequence::try_scan(message, cursor)?;
+        let label = scan.value();
+        let scan_length = scan.total_bytes;
+
+        let value = &message[cursor + scan_length..];
+        let r#type = RecordType::try_from(u16::from_be_bytes([value[0], value[1]]))?;
+        let class = Class::try_from(u16::from_be_bytes([value[2], value[3]]))?;
+        let ttl = u32::from_be_bytes([value[4], value[5], value[6], value[7]]);
+        let length = u16::from_be_bytes([value[8], value[9]]);
+        let data = decode_rdata(&class, &r#type, message, cursor + name_len + 10)?;
+
+        Ok((
+            Self {
+                name,
+                r#type,
+                class,
+                ttl,
+                length,
+                data,
+            },
+            name_len + 10 + length as usize,
+        ))
     }
 }
 

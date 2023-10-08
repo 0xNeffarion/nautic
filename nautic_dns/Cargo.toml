@@ -1,20 +1,21 @@
 [package]
 name = "nautic_dns"
-version = "0.0.1-alpha"
+version = "0.0.1-beta"
 edition = "2021"
 description = "A DNS library for handling DNS requests and responses."
 repository = "https://github.com/0xNeffarion/nautic"
 authors = ["Vasco Serrano <main@neffware.com>"]
 readme = "../README.md"
 license = "MIT"
+rust-version = "1.71"
 publish = true
 
 [dependencies]
 tokio = { version = "^1.30", features = [ "full" ] }
-thiserror = { version = "^1" }
-url = { version = "^2" }
-bytes = { version = "^1", features = ["serde"] }
-derive_more = { version = "^0" }
-derive_builder = { version = "^0" }
+thiserror = { version = "^1.0" }
+url = { version = "^2.4" }
+bytes = { version = "^1.5", features = ["serde"] }
+derive_more = { version = "^0.99" }
+derive_builder = { version = "^0.12" }
 rand = { version = "^0.8" }
 bitter = { version = "^0.6" }
